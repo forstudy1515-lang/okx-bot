@@ -1,0 +1,62 @@
+import express from "express";
+import crypto from "crypto";
+
+const app = express();
+app.use(express.json());
+
+const OKX_API_KEY = process.env.OKX_API_KEY;
+const OKX_SECRET = process.env.OKX_SECRET;
+const OKX_PASSPHRASE = process.env.OKX_PASSPHRASE;
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+const SIMULATED = process.env.SIMULATED_TRADING || "1";
+
+const BASE = "https://www.okx.com";
+
+function sign(ts, method, path, body="") {
+  const prehash = ts + method + path + body;
+  return crypto.createHmac("sha256", OKX_SECRET)
+    .update(prehash)
+    .digest("base64");
+}
+
+app.get("/health",(req,res)=>res.send("OK"));
+
+app.post("/tv", async (req,res)=>{
+  try{
+    if(req.body.secret !== WEBHOOK_SECRET){
+      return res.status(401).send("bad secret");
+    }
+
+    const body = JSON.stringify({
+      instId: req.body.instId,
+      tdMode: "cash",
+      side: req.body.action,
+      ordType: "market",
+      sz: req.body.sz
+    });
+
+    const ts = new Date().toISOString();
+    const path="/api/v5/trade/order";
+
+    const response = await fetch(BASE+path,{
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json",
+        "OK-ACCESS-KEY":OKX_API_KEY,
+        "OK-ACCESS-SIGN":sign(ts,"POST",path,body),
+        "OK-ACCESS-TIMESTAMP":ts,
+        "OK-ACCESS-PASSPHRASE":OKX_PASSPHRASE,
+        "x-simulated-trading":SIMULATED
+      },
+      body
+    });
+
+    const data = await response.json();
+    res.json(data);
+
+  }catch(e){
+    res.status(500).send(e.toString());
+  }
+});
+
+app.listen(3000,()=>console.log("running"));
